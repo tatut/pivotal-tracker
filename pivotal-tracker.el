@@ -235,7 +235,9 @@ If you try to go before 0 it just reloads current."
       ;;  )
       (if (eq 'nil-classes (first (first xml)))
           (insert "No stories in this iteration yet")
-        (pivotal-insert-iteration xml)))))
+        (pivotal-insert-iteration xml))
+
+      (pivotal-add-attachment-links))))
 
 (defun pivotal-projects-callback (status)
   "Pivotal projects callback handler (accept STATUS from response)."
@@ -364,6 +366,9 @@ C-h m  show all keybindings"))
   ;; SubMenus
   (define-key pivotal-mode-map (kbd "o") 'pivotal-link-popup)
   (define-key pivotal-mode-map (kbd "s") 'pivotal-story-popup)
+
+  ;; Open attachment links in browser
+  (define-key pivotal-mode-map (kbd "<return>") 'pivotal-open-attachment-url)
 
   (setq font-lock-defaults '(pivotal-font-lock-keywords))
   (font-lock-mode))
@@ -694,6 +699,9 @@ Labels:       %s
 
 [Comments]
 %s
+
+[Attachments]
+%s
 "
           (pivotal-story-attribute story 'story_type)
           (pivotal-story-attribute story 'id)
@@ -703,7 +711,8 @@ Labels:       %s
           (pivotal-story-attribute story 'labels)
           (pivotal-story-attribute story 'description)
           (pivotal-tasks story)
-          (pivotal-comments story)))
+          (pivotal-comments story)
+          (pivotal-attachments story)))
 
 (defun pivotal-format-story-oneline (story)
   "Format STORY as one line."
@@ -795,6 +804,42 @@ Put point at the first char of the next story."
     (if created-at
         (setq created-at (substring created-at 5 10)))
     (format "%s  --  %s on %s\n" text author created-at)))
+
+(defun pivotal-attachments (story)
+  "Get attachments for the STORY."
+  (cl-reduce
+   (lambda (acc attachment)
+     (format "%s%s <%s>  -- %s on %s\n" acc
+             (pivotal-element-value attachment 'filename)
+             (pivotal-element-value attachment 'url)
+             (pivotal-element-value attachment 'uploaded_by)
+             (substring (pivotal-element-value attachment 'uploaded_at) 5 10)))
+   (pivotal-xml-collection story '(attachments attachment))
+   :initial-value ""))
+
+(defun pivotal-add-attachment-links ()
+  "Add text properties to all attachment links for opening them in the browser."
+  (save-excursion
+    (let ((pos (point-min)))
+      (while (progn
+               (goto-char pos)
+               (re-search-forward "<\\(http[^>]+/download\\)>" nil t))
+        (let ((url (match-string-no-properties 1))
+              (beg (match-beginning 1))
+              (end (match-end 1)))
+          (add-text-properties
+           beg end
+           `(mouse-face highlight
+             help-echo "click to open attachment in browser"
+             pivotal-attachment-url ,url
+             follow-link t))
+          (setq pos (match-end 0)))))))
+
+(defun pivotal-open-attachment-url ()
+  (interactive)
+  (let ((url (get-text-property (point) 'pivotal-attachment-url)))
+    (if url
+        (browse-url url))))
 
 (defun pivotal-tasks (story)
   "Get the tasks for STORY."
